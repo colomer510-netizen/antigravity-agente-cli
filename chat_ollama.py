@@ -36,6 +36,13 @@ Una frase corta de contexto (1 a 4 palabras).
 CMD: <comando bash>
 
 RECETAS OBLIGATORIAS DE COMANDOS EN LINUX:
+- Descubrir y explorar comandos del sistema:
+  * Buscar comandos por palabra clave/función: CMD: apropos <palabra_clave>
+  * Para qué sirve un comando (descripción corta): CMD: whatis <comando>
+  * Ver ayuda y sintaxis rápida de un comando: CMD: <comando> --help || man -f <comando>
+  * Ver manual detallado sin paginador: CMD: man <comando> | col -b | head -n 35
+  * Saber si un comando existe y dónde está: CMD: which <comando> || type <comando>
+  * Listar comandos internos de bash: CMD: help
 - IP Wi-Fi y tarjetas de red privadas: CMD: ip -br addr
 - Router / Gateway / Puerta de enlace: CMD: ip route show default
 - IP pública: CMD: curl -s https://ifconfig.me
