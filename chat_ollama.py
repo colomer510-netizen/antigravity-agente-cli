@@ -43,6 +43,7 @@ RECETAS OBLIGATORIAS DE COMANDOS EN LINUX:
 - Memoria RAM: CMD: free -h
 - Procesos con mayor consumo de RAM: CMD: ps aux --sort=-%mem | head -n 8
 - Procesos con mayor consumo de CPU: CMD: ps aux --sort=-%cpu | head -n 8
+- Temperatura y ventiladores: CMD: sensors
 - Estado o carga de CPU: CMD: uptime
 - Hardware / Batería: CMD: upower -i $(upower -e | grep 'BAT') 2>/dev/null || acpi 2>/dev/null
 - Buscar archivos en el proyecto: CMD: find . -maxdepth 3 -not -path '*/.*'
@@ -334,9 +335,11 @@ async def procesar_turno(client: httpx.AsyncClient, model_name: str, history: li
         history.append({
             "role": "user",
             "content": (
-                f"Salida real del comando ({cmd_detectado}):\n```\n{salida_optimizada}\n```\n\n"
-                "Instrucción: Reporta al usuario exactamente los datos reales de la salida anterior "
-                "en español claro y conciso (1 a 3 líneas). NUNCA inventes información que no esté en la salida."
+                f"Resultado de la ejecución del comando `{cmd_detectado}`:\n```\n{salida_optimizada}\n```\n\n"
+                "Instrucción para responder:\n"
+                "1. Si el comando dio error o no devolvió datos, indícaselo claramente al usuario y sugiere una alternativa.\n"
+                "2. Explica y desglosa en español los datos reales obtenidos con detalle técnico, contexto y claridad (temperaturas, componentes, valores principales, etc.).\n"
+                "3. No te limites a una frase corta: ofrece un análisis completo, legible y estructurado basado en la salida real."
             )
         })
 
