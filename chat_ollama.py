@@ -3,15 +3,19 @@
 Agente Inteligente Ultra-Rápido con Ollama y Control del Sistema Linux.
 - Conexión directa streaming a través de Ollama.
 - Mensaje breve de contexto antes de solicitar el comando.
-- Menú interactivo de seguridad: [1-4]
-- Inyección obligatoria de SYSTEM_PROMPT de Linux para cualquier modelo.
-- Soporte para cambio dinámico de modelos en caliente (/modelos o /modelo [nombre])
+- Menú interactivo de seguridad: [1-4] con advertencias de riesgo.
+- Detección precisa de IP, red, hardware, procesos y tareas de código.
+- Historial persistente en terminal con soporte de flechas ↑/↓ (readline).
+- Soporte para pipes y comandos directos: echo "..." | agente "analiza" o agente "comando"
+- Comandos internos: /modelos, /modelo, /limpiar, /historial, /ayuda, salir.
 """
 
 import asyncio
 import itertools
 import json
+import os
 import re
+import readline
 import subprocess
 import sys
 import httpx
@@ -19,28 +23,44 @@ import httpx
 DEFAULT_MODEL = "qwen2.5-coder:1.5b"
 BASE_URL = "http://localhost:11434/v1"
 OLLAMA_TAGS_URL = "http://localhost:11434/api/tags"
+HISTORIAL_PATH = os.path.expanduser("~/.config/antigravity_agente_history")
 
-SYSTEM_PROMPT = """Eres el asistente del sistema Linux (Ubuntu) de Enoc.
-Tu misión principal es monitorear y gestionar el sistema operativo Linux con precisión técnica real.
+SYSTEM_PROMPT = """Eres el asistente técnico de Linux (Ubuntu) y programación de Enoc.
+Tu misión es monitorear el sistema operativo, gestionar archivos/código y ejecutar tareas con precisión técnica real.
 
 REGLAS ABSOLUTAS:
-1. El sistema operativo es LINUX (Ubuntu), NUNCA Windows ni macOS. Jamás uses comandos de Windows (como dir, cls, tasklist, etc.).
-2. NUNCA inventes números ni estados de RAM, disco, CPU o red sin ejecutar un comando real.
+1. El sistema operativo es LINUX (Ubuntu), NUNCA Windows ni macOS. Jamás uses comandos de Windows (dir, cls, tasklist, etc.).
+2. NUNCA inventes números, datos de red, IP, RAM, CPU o contenidos de archivos sin ejecutar un comando real de Linux.
 3. Para ejecutar un comando bash en Linux, debes responder SIEMPRE en este formato exacto:
 Una frase corta de contexto (1 a 4 palabras).
 CMD: <comando bash>
 
-Ejemplos de comandos obligatorios en Linux:
+RECETAS OBLIGATORIAS DE COMANDOS EN LINUX:
+- IP Wi-Fi y tarjetas de red privadas: CMD: ip -br addr
+- Router / Gateway / Puerta de enlace: CMD: ip route show default
+- IP pública: CMD: curl -s https://ifconfig.me
 - Almacenamiento / Disco: CMD: df -h /
 - Memoria RAM: CMD: free -h
-- Procesos que consumen RAM: CMD: ps aux --sort=-%mem | head -n 8
-- Procesos que consumen CPU: CMD: ps aux --sort=-%cpu | head -n 8
+- Procesos con mayor consumo de RAM: CMD: ps aux --sort=-%mem | head -n 8
+- Procesos con mayor consumo de CPU: CMD: ps aux --sort=-%cpu | head -n 8
 - Estado o carga de CPU: CMD: uptime
-- Dirección IP / Red: CMD: hostname -I
-- Información de hardware / batería: CMD: upower -i $(upower -e | grep 'BAT') 2>/dev/null || acpi 2>/dev/null
+- Hardware / Batería: CMD: upower -i $(upower -e | grep 'BAT') 2>/dev/null || acpi 2>/dev/null
+- Buscar archivos en el proyecto: CMD: find . -maxdepth 3 -not -path '*/.*'
+- Leer código o archivo: CMD: cat <ruta_archivo>
+- Inspeccionar git: CMD: git status -s
 """
 
-# Animación de carga estilo Ollama (braille / puntos)
+# Comandos de alto riesgo para advertencia visual
+DANGEROUS_PATTERNS = [
+    r"\brm\s+-[rf]*\b",
+    r"\bmkfs\b",
+    r"\bdd\b",
+    r">\s*/dev/sd[a-z]",
+    r"\bchmod\s+-R\s+777\b",
+    r"\bshutdown\b",
+    r"\breboot\b"
+]
+
 SPINNER_CHARS = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
 class Spinner:
@@ -67,22 +87,52 @@ class Spinner:
         if self.running:
             self.running = False
             if self.task:
-                await self.task
+                try:
+                    await self.task
+                except asyncio.CancelledError:
+                    pass
+
+def setup_readline():
+    """Habilita el historial persistente con navegación mediante flechas ↑ y ↓."""
+    try:
+        os.makedirs(os.path.dirname(HISTORIAL_PATH), exist_ok=True)
+        if os.path.exists(HISTORIAL_PATH):
+            readline.read_history_file(HISTORIAL_PATH)
+        readline.set_history_length(1000)
+    except Exception:
+        pass
+
+def save_readline():
+    """Guarda el historial de comandos al cerrar la sesión."""
+    try:
+        readline.write_history_file(HISTORIAL_PATH)
+    except Exception:
+        pass
+
+def es_comando_peligroso(cmd: str) -> bool:
+    """Verifica si el comando contiene patrones potencialmente destructivos."""
+    for pattern in DANGEROUS_PATTERNS:
+        if re.search(pattern, cmd):
+            return True
+    return False
 
 def pedir_confirmacion_comando(cmd_propuesto: str) -> tuple[bool, str]:
     """Muestra el menú interactivo para aprobar, editar o cancelar un comando."""
     cmd_actual = cmd_propuesto
     while True:
-        print("\n" + "=" * 55)
+        peligroso = es_comando_peligroso(cmd_actual)
+        print("\n" + "=" * 58)
+        if peligroso:
+            print("🚨 \033[1;41;97m ATENCIÓN: COMANDO POTENCIALMENTE PELIGROSO \033[0m")
         print("⚙️  \033[1;33mEl Agente solicita ejecutar un comando en Linux:\033[0m")
         print(f"   \033[1;32m{cmd_actual}\033[0m")
-        print("=" * 55)
+        print("=" * 58)
         print("¿Qué deseas hacer?")
         print(" [1] Sí, ejecutar comando")
         print(" [2] Modificar comando manualmente")
         print(" [3] Dar otras instrucciones / feedback al agente")
         print(" [4] Cancelar")
-        print("-" * 55)
+        print("-" * 58)
 
         try:
             opcion = input("Selecciona una opción [1-4] (por defecto 1): ").strip()
@@ -98,12 +148,12 @@ def pedir_confirmacion_comando(cmd_propuesto: str) -> tuple[bool, str]:
                     shell=True,
                     capture_output=True,
                     text=True,
-                    timeout=20
+                    timeout=25
                 )
-                salida = res.stdout if res.returncode == 0 else res.stderr
+                salida = res.stdout if res.returncode == 0 else (res.stderr or res.stdout)
                 return True, salida.strip() or "(Comando ejecutado con éxito sin salida)"
             except subprocess.TimeoutExpired:
-                return False, "Error: El comando tardó demasiado tiempo y se canceló."
+                return False, "Error: El comando tardó demasiado tiempo y fue cancelado."
             except Exception as e:
                 return False, f"Error al ejecutar: {e}"
 
@@ -121,7 +171,7 @@ def pedir_confirmacion_comando(cmd_propuesto: str) -> tuple[bool, str]:
             try:
                 instruccion = input("\nEscribe la nueva instrucción para el agente: ").strip()
                 if instruccion:
-                    return False, f"El usuario no ejecutó el comando y pidió: '{instruccion}'"
+                    return False, f"El usuario canceló ese comando y solicitó: '{instruccion}'"
             except (KeyboardInterrupt, EOFError):
                 pass
             return False, "Operación cancelada por el usuario."
@@ -139,8 +189,8 @@ def extraer_comando_y_contexto(texto: str) -> tuple[str | None, str]:
         cmd = match.group(1).strip().strip("`").strip()
         contexto = texto[:match.start()].strip()
         return cmd, contexto
-    
-    # Soporte para bloques bash
+
+    # Soporte para bloques ```bash o ```sh
     match_code = re.search(r"```(?:bash|sh)?\s*([^\n]+)\s*```", texto)
     if match_code:
         cmd = match_code.group(1).strip()
@@ -150,7 +200,7 @@ def extraer_comando_y_contexto(texto: str) -> tuple[str | None, str]:
     return None, texto.strip()
 
 async def obtener_modelos_disponibles(client: httpx.AsyncClient) -> list[str]:
-    """Consulta la API nativa de Ollama para listar los modelos descargados."""
+    """Consulta la API de Ollama para listar los modelos descargados."""
     try:
         resp = await client.get(OLLAMA_TAGS_URL, timeout=5.0)
         if resp.status_code == 200:
@@ -158,20 +208,20 @@ async def obtener_modelos_disponibles(client: httpx.AsyncClient) -> list[str]:
             return [m["name"] for m in datos.get("models", [])]
     except Exception:
         pass
-    return ["qwen2.5-coder:3b", "enoc-agent:latest", "phi4-mini:latest", "qwen2.5-coder:1.5b"]
+    return ["qwen2.5-coder:1.5b", "llama3.2:latest", "phi4-mini:latest"]
 
 async def cambiar_modelo_interactivo(client: httpx.AsyncClient, modelo_actual: str) -> str:
     """Muestra la lista de modelos locales y permite al usuario elegir uno."""
     modelos = await obtener_modelos_disponibles(client)
-    print("\n" + "=" * 55)
+    print("\n" + "=" * 58)
     print("🧠 \033[1;36mModelos disponibles en Ollama:\033[0m")
-    print("=" * 55)
+    print("=" * 58)
     for idx, m in enumerate(modelos, 1):
         actual_mark = " \033[1;32m(ACTIVO)\033[0m" if m == modelo_actual or m == f"{modelo_actual}:latest" else ""
         print(f" [{idx}] {m}{actual_mark}")
-    print("-" * 55)
+    print("-" * 58)
     print(f"Elige un número [1-{len(modelos)}] o escribe el nombre del modelo:")
-    
+
     try:
         seleccion = input("Selección: ").strip()
         if not seleccion:
@@ -195,35 +245,154 @@ async def cambiar_modelo_interactivo(client: httpx.AsyncClient, modelo_actual: s
                 print(f"No se encontró un modelo que coincida con '{seleccion}'.")
     except (KeyboardInterrupt, EOFError):
         print("\nCambio de modelo cancelado.")
-    
+
     return modelo_actual
 
-async def main():
-    model_name = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_MODEL
+async def consultar_ia(client: httpx.AsyncClient, model_name: str, messages: list) -> str:
+    """Envía la solicitud de chat a Ollama en modo streaming y acumula la respuesta."""
+    payload = {
+        "model": model_name,
+        "messages": messages,
+        "stream": True,
+        "options": {
+            "temperature": 0.1,
+            "num_predict": 512
+        }
+    }
+    req = client.build_request("POST", f"{BASE_URL}/chat/completions", json=payload, timeout=60.0)
+    resp = await client.send(req, stream=True)
 
-    print("=" * 60)
-    print("🤖 Agente Inteligente Local con Ollama")
-    print("=" * 60)
-    print(f"• Endpoint : {BASE_URL}")
-    print(f"• Modelo   : \033[1;32m{model_name}\033[0m")
-    print("• SO       : Linux (Ubuntu)")
-    print("• Control  : Opciones [1-4] antes de ejecutar comandos")
-    print("• Comandos : '/modelos' o '/modelo' para cambiar de IA")
-    print("• Salir    : 'salir' o Ctrl+C para terminar.\n")
+    texto_acumulado = ""
+    async for line in resp.aiter_lines():
+        if not line.startswith("data: "):
+            continue
+        data_str = line[6:].strip()
+        if data_str == "[DONE]":
+            break
+        try:
+            chunk = json.loads(data_str)
+            delta = chunk["choices"][0].get("delta", {}).get("content", "")
+            if delta:
+                texto_acumulado += delta
+        except json.JSONDecodeError:
+            continue
+
+    await resp.aclose()
+    return texto_acumulado
+
+async def procesar_turno(client: httpx.AsyncClient, model_name: str, history: list, user_msg: str, stream_output: bool = True):
+    """Procesa el turno de usuario, ejecuta comandos si se solicitan y retroalimenta al agente."""
+    history.append({"role": "user", "content": user_msg})
+
+    spinner = Spinner(message=f"[{model_name}] pensando...")
+    spinner.start()
+
+    try:
+        texto_completo = await consultar_ia(client, model_name, history)
+    finally:
+        await spinner.stop()
+
+    cmd_detectado, contexto = extraer_comando_y_contexto(texto_completo)
+
+    if cmd_detectado:
+        if contexto:
+            print(f"\nAgente > {contexto}")
+
+        ejecutado, salida = pedir_confirmacion_comando(cmd_detectado)
+
+        spinner = Spinner(message="Analizando resultados...")
+        spinner.start()
+
+        history.append({"role": "assistant", "content": f"{contexto}\nCMD: {cmd_detectado}".strip()})
+        history.append({
+            "role": "user",
+            "content": (
+                f"Salida real del comando ({cmd_detectado}):\n```\n{salida}\n```\n\n"
+                "Instrucción: Reporta al usuario exactamente los datos reales de la salida anterior "
+                "en español claro y conciso (1 a 3 líneas). NUNCA inventes información que no esté en la salida."
+            )
+        })
+
+        try:
+            respuesta_final = await consultar_ia(client, model_name, history)
+        finally:
+            await spinner.stop()
+
+        print(f"\nAgente > {respuesta_final.strip()}\n")
+        history.append({"role": "assistant", "content": respuesta_final.strip()})
+    else:
+        print(f"\nAgente > {texto_completo.strip()}\n")
+        history.append({"role": "assistant", "content": texto_completo.strip()})
+
+async def main():
+    setup_readline()
+
+    # Soporte para entrada directa por argumentos: agente "pregunta"
+    args = sys.argv[1:]
+    model_name = DEFAULT_MODEL
+
+    # Si el primer argumento es un modelo conocido o empieza por bandera
+    if args and not args[0].startswith("-") and not sys.stdin.isatty():
+        pass
+    elif args and not args[0].startswith("-") and ":" in args[0]:
+        model_name = args.pop(0)
+
+    # Detección de entrada por tubería (pipe): cat archivo | agente "analiza"
+    pipe_input = ""
+    if not sys.stdin.isatty():
+        pipe_input = sys.stdin.read().strip()
 
     history = [{"role": "system", "content": SYSTEM_PROMPT}]
 
     async with httpx.AsyncClient() as client:
+        # Caso 1: Se pasó consulta directa o por pipe y no es modo interactivo
+        if pipe_input or (args and not sys.stdin.isatty()):
+            consulta = " ".join(args).strip()
+            mensaje_total = f"Contexto/Código recibido por pipe:\n```\n{pipe_input}\n```\n\nPetición: {consulta}" if pipe_input else consulta
+            await procesar_turno(client, model_name, history, mensaje_total)
+            return
+
+        # Caso 2: Modo interactivo completo
+        print("=" * 60)
+        print("🤖 \033[1;36mAgente Inteligente Local con Ollama\033[0m")
+        print("=" * 60)
+        print(f"• Endpoint   : {BASE_URL}")
+        print(f"• Modelo     : \033[1;32m{model_name}\033[0m")
+        print("• SO         : Linux (Ubuntu)")
+        print("• Navegación : Historial con flechas ↑ / ↓")
+        print("• Comandos   : '/modelos', '/limpiar', '/ayuda', 'salir'")
+        print("=" * 60 + "\n")
+
+        # Si se pasó una pregunta inicial por argumento al abrir la sesión interactiva
+        if args:
+            pregunta_inicial = " ".join(args).strip()
+            print(f"Tú > {pregunta_inicial}")
+            await procesar_turno(client, model_name, history, pregunta_inicial)
+
         while True:
             try:
-                user_msg = input("\nTú > ").strip()
+                user_msg = input("Tú > ").strip()
                 if not user_msg:
                     continue
-                if user_msg.lower() in ("salir", "exit", "quit"):
+
+                if user_msg.lower() in ("salir", "exit", "quit", "q"):
                     print("¡Hasta luego!")
                     break
 
-                # COMANDO PARA CAMBIAR DE MODELO EN CALIENTE
+                if user_msg.lower() in ("/limpiar", "/clear", "limpiar"):
+                    history = [{"role": "system", "content": SYSTEM_PROMPT}]
+                    print("\n🧹 \033[1;32mContexto de la conversación reiniciado.\033[0m\n")
+                    continue
+
+                if user_msg.lower() in ("/ayuda", "/help", "ayuda"):
+                    print("\n📖 \033[1;36mComandos rápidos disponibles:\033[0m")
+                    print("  /modelos          - Muestra y permite cambiar el modelo en caliente")
+                    print("  /modelo <nombre>  - Cambia directamente de modelo")
+                    print("  /limpiar          - Limpia el historial para liberar memoria")
+                    print("  Flechas ↑ / ↓     - Navega por el historial de tus preguntas")
+                    print("  salir             - Cierra la sesión\n")
+                    continue
+
                 if user_msg.lower() in ("/modelos", "/modelo", "modelos", "cambiar modelo"):
                     model_name = await cambiar_modelo_interactivo(client, model_name)
                     continue
@@ -236,109 +405,23 @@ async def main():
                         coincidencias = [m for m in modelos if solicitado.lower() in m.lower()]
                         if coincidencias:
                             model_name = coincidencias[0]
-                            print(f"\n✔ Modelo cambiado a: \033[1;32m{model_name}\033[0m")
                         else:
                             model_name = solicitado
-                            print(f"\n✔ Modelo fijado a: \033[1;32m{model_name}\033[0m")
-                        continue
+                        print(f"\n✔ Modelo fijado a: \033[1;32m{model_name}\033[0m\n")
+                    continue
 
-                history.append({"role": "user", "content": user_msg})
+                await procesar_turno(client, model_name, history, user_msg)
 
-                spinner = Spinner(message=f"[{model_name}] pensando...")
-                spinner.start()
-
-                payload = {
-                    "model": model_name,
-                    "messages": history,
-                    "stream": True,
-                    "options": {"temperature": 0.0}
-                }
-
-                req = client.build_request("POST", f"{BASE_URL}/chat/completions", json=payload, timeout=60.0)
-                resp = await client.send(req, stream=True)
-
-                texto_completo = ""
-
-                async for line in resp.aiter_lines():
-                    if not line.startswith("data: "):
-                        continue
-                    data_str = line[6:].strip()
-                    if data_str == "[DONE]":
-                        break
-                    
-                    try:
-                        chunk_json = json.loads(data_str)
-                        delta = chunk_json["choices"][0].get("delta", {}).get("content", "")
-                        if delta:
-                            texto_completo += delta
-                    except json.JSONDecodeError:
-                        continue
-
-                await resp.aclose()
-                await spinner.stop()
-
-                # Separar comando y mensaje de contexto
-                cmd_detectado, contexto = extraer_comando_y_contexto(texto_completo)
-
-                if cmd_detectado:
-                    if contexto:
-                        print(f"\nAgente > {contexto}")
-
-                    # Mostrar el menú interactivo [1-4]
-                    ejecutado, salida = pedir_confirmacion_comando(cmd_detectado)
-
-                    spinner = Spinner(message="Procesando datos...")
-                    spinner.start()
-
-                    history.append({"role": "assistant", "content": f"{contexto}\nCMD: {cmd_detectado}".strip()})
-                    history.append({
-                        "role": "user",
-                        "content": f"Salida real del comando ({cmd_detectado}):\n```\n{salida}\n```\n\nInstrucción: Extrae y reporta de forma exacta los números y datos reales de la salida anterior al usuario en español en 1 o 2 líneas claras. NUNCA inventes números que no estén en la salida."
-                    })
-
-                    payload_res = {
-                        "model": model_name,
-                        "messages": history,
-                        "stream": True,
-                        "options": {"temperature": 0.0}
-                    }
-
-                    req2 = client.build_request("POST", f"{BASE_URL}/chat/completions", json=payload_res, timeout=60.0)
-                    resp2 = await client.send(req2, stream=True)
-
-                    await spinner.stop()
-                    print("\nAgente > ", end="", flush=True)
-                    respuesta_final = ""
-
-                    async for line2 in resp2.aiter_lines():
-                        if not line2.startswith("data: "):
-                            continue
-                        data_str2 = line2[6:].strip()
-                        if data_str2 == "[DONE]":
-                            break
-                        try:
-                            chunk_json2 = json.loads(data_str2)
-                            delta2 = chunk_json2["choices"][0].get("delta", {}).get("content", "")
-                            if delta2:
-                                respuesta_final += delta2
-                                sys.stdout.write(delta2)
-                                sys.stdout.flush()
-                        except json.JSONDecodeError:
-                            continue
-
-                    print()
-                    history.append({"role": "assistant", "content": respuesta_final.strip()})
-
-                else:
-                    # Conversación normal sin comando
-                    print(f"\nAgente > {texto_completo.strip()}")
-                    history.append({"role": "assistant", "content": texto_completo.strip()})
-
-            except KeyboardInterrupt:
+            except (KeyboardInterrupt, EOFError):
                 print("\n\nSesión terminada. ¡Hasta luego!")
                 break
             except Exception as e:
-                print(f"\nError: {e}")
+                print(f"\n❌ Error inesperado: {e}\n")
+            finally:
+                save_readline()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        sys.exit(0)
