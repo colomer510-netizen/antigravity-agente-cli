@@ -248,11 +248,37 @@ async def cambiar_modelo_interactivo(client: httpx.AsyncClient, modelo_actual: s
 
     return modelo_actual
 
+MAX_OUTPUT_LINES = 25  # Truncar salidas largas de comandos para no saturar la CPU
+MAX_TURNS_HISTORY = 4  # Mantener solo los últimos turnos en la ventana deslizante
+
+def podar_historial(history: list) -> list:
+    """Mantiene el SYSTEM_PROMPT intacto y aplica una ventana deslizante de memoria ligera."""
+    if len(history) <= 1:
+        return history
+    system_msg = history[0]
+    conversaciones = history[1:]
+    # Cada turno de usuario suele tener entre 1 y 3 mensajes (pregunta, comando, salida, respuesta)
+    # Conservamos únicamente los mensajes más recientes
+    limite = MAX_TURNS_HISTORY * 3
+    if len(conversaciones) > limite:
+        conversaciones = conversaciones[-limite:]
+    return [system_msg] + conversaciones
+
+def compactar_salida_comando(salida: str, max_lineas: int = MAX_OUTPUT_LINES) -> str:
+    """Compacta salidas de comandos extensas para que la CPU de Ollama responda al instante."""
+    lineas = salida.strip().splitlines()
+    if len(lineas) <= max_lineas:
+        return salida.strip()
+    primeras = lineas[:max_lineas]
+    omitidas = len(lineas) - max_lineas
+    return "\n".join(primeras) + f"\n... [Se omitieron {omitidas} líneas para mantener máxima velocidad en CPU] ..."
+
 async def consultar_ia(client: httpx.AsyncClient, model_name: str, messages: list) -> str:
     """Envía la solicitud de chat a Ollama en modo streaming y acumula la respuesta."""
+    mensajes_ligeros = podar_historial(messages)
     payload = {
         "model": model_name,
-        "messages": messages,
+        "messages": mensajes_ligeros,
         "stream": True,
         "options": {
             "temperature": 0.1,
@@ -304,10 +330,11 @@ async def procesar_turno(client: httpx.AsyncClient, model_name: str, history: li
         spinner.start()
 
         history.append({"role": "assistant", "content": f"{contexto}\nCMD: {cmd_detectado}".strip()})
+        salida_optimizada = compactar_salida_comando(salida)
         history.append({
             "role": "user",
             "content": (
-                f"Salida real del comando ({cmd_detectado}):\n```\n{salida}\n```\n\n"
+                f"Salida real del comando ({cmd_detectado}):\n```\n{salida_optimizada}\n```\n\n"
                 "Instrucción: Reporta al usuario exactamente los datos reales de la salida anterior "
                 "en español claro y conciso (1 a 3 líneas). NUNCA inventes información que no esté en la salida."
             )
