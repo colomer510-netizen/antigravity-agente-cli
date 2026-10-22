@@ -11,6 +11,7 @@ Agente Inteligente Ultra-Rápido con Ollama y Control del Sistema Linux.
 """
 
 import asyncio
+import getpass
 import itertools
 import json
 import os
@@ -21,12 +22,31 @@ import sys
 
 import httpx
 
+
+def obtener_nombre_usuario() -> str:
+    """Detecta el nombre de usuario del sistema dinámicamente."""
+    try:
+        raw_user = os.environ.get("USER") or getpass.getuser() or "usuario"
+    except Exception:  # noqa: BLE001
+        raw_user = "usuario"
+    primer_nombre = raw_user.split("-")[0].capitalize()
+    return primer_nombre if primer_nombre else "Usuario"
+
+
+CURRENT_USER = obtener_nombre_usuario()
 DEFAULT_MODEL = "enoc-agent:latest"
+PREFERRED_MODELS = [
+    "enoc-agent:latest",
+    "agente:latest",
+    "qwen2.5-coder:1.5b",
+    "llama3.2:latest",
+    "phi4-mini:latest",
+]
 BASE_URL = "http://localhost:11434/v1"
 OLLAMA_TAGS_URL = "http://localhost:11434/api/tags"
 HISTORIAL_PATH = os.path.expanduser("~/.config/antigravity_agente_history")
 
-SYSTEM_PROMPT = """Eres el asistente del sistema Linux (Ubuntu) de Enoc.
+SYSTEM_PROMPT = f"""Eres el asistente del sistema Linux (Ubuntu) de {CURRENT_USER}.
 Operas como AGENTE AUTÓNOMO con ejecución real de comandos bash.
 
 REGLAS OBLIGATORIAS:
@@ -597,6 +617,17 @@ async def main():
     history = [{"role": "system", "content": SYSTEM_PROMPT}]
 
     async with httpx.AsyncClient() as client:
+        # Resolver automáticamente el modelo disponible si no se pasó uno explícito por argumento
+        if not (args and not args[0].startswith("-") and ":" in args[0]):
+            disponibles = await obtener_modelos_disponibles(client)
+            for preferido in PREFERRED_MODELS:
+                if preferido in disponibles:
+                    model_name = preferido
+                    break
+            else:
+                if disponibles:
+                    model_name = disponibles[0]
+
         # Caso 1: Se pasó consulta directa o por pipe y no es modo interactivo
         if pipe_input or (args and not sys.stdin.isatty()):
             consulta = " ".join(args).strip()

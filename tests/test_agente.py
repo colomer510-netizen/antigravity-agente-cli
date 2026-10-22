@@ -10,6 +10,7 @@ from chat_ollama import (
     es_comando_peligroso,
     es_comando_seguro,
     extraer_comando_y_contexto,
+    obtener_nombre_usuario,
     podar_historial,
 )
 
@@ -114,6 +115,14 @@ class TestAgenteLowResource(unittest.TestCase):
         podado = podar_historial(history)
         self.assertEqual(podado[0]["role"], "system")
         self.assertLessEqual(len(podado), MAX_TURNS_HISTORY * 3 + 1)
+
+
+class TestAgenteUsuario(unittest.TestCase):
+    def test_obtener_nombre_usuario_dinamico(self):
+        """Verifica que el nombre de usuario se detecte dinámicamente."""
+        nombre = obtener_nombre_usuario()
+        self.assertIsInstance(nombre, str)
+        self.assertTrue(len(nombre) > 0)
 
 
 if __name__ == "__main__":
