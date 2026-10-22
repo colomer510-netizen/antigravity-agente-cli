@@ -36,7 +36,7 @@ preguntas:
     - Documentación completa: `README.md` y `requirements.txt`.
 
 ## Publicación en GitHub (Completada)
-- **Repositorio Oficial Público:** [https://github.com/colomer510-netizen/antigravity-sdk](https://github.com/colomer510-netizen/antigravity-sdk)
+- **Repositorio Oficial Público:** [https://github.com/colomer510-netizen/antigravity-agente-cli](https://github.com/colomer510-netizen/antigravity-agente-cli)
 - **Licencia:** Apache 2.0 con archivo NOTICE de atribución a Google Antigravity SDK.
 
 ## Próximos Pasos Técnicos

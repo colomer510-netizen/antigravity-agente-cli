@@ -1,4 +1,4 @@
-# Enoc Agent CLI: Agente Autónomo Local para Linux (Ubuntu)
+# Antigravity Agente CLI: Agente Autónomo Local para Linux (Ubuntu)
 
 Un agente de terminal ligero, ultra-rápido y 100% offline para Linux (Ubuntu), potenciado por **Ollama** en CPU local y con integración de compatibilidad con **Google Antigravity SDK**.
 
@@ -52,8 +52,8 @@ ollama run llama3.2:latest
 ### 3. Instalación de dependencias
 Clona el repositorio con sus submódulos:
 ```bash
-git clone --recurse-submodules https://github.com/tu-usuario/antigravity-sdk.git
-cd antigravity-sdk
+git clone --recurse-submodules https://github.com/colomer510-netizen/antigravity-agente-cli.git
+cd antigravity-agente-cli
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
