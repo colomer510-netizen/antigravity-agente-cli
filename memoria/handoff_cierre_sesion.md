@@ -35,8 +35,12 @@ preguntas:
     - Atribución formal: `NOTICE` reconociendo a Google LLC por Google Antigravity SDK según la sección 4(d) de Apache 2.0.
     - Documentación completa: `README.md` y `requirements.txt`.
 
+## Publicación en GitHub (Completada)
+- **Repositorio Oficial Público:** [https://github.com/colomer510-netizen/antigravity-sdk](https://github.com/colomer510-netizen/antigravity-sdk)
+- **Licencia:** Apache 2.0 con archivo NOTICE de atribución a Google Antigravity SDK.
+
 ## Próximos Pasos Técnicos
-1. **Publicación en GitHub:** Agregar el remote de GitHub (`git remote add origin ...`) y realizar el primer push público respetando la licencia Apache 2.0.
+1. **GitHub Actions Workflow:** Ejecutar `gh auth refresh -s workflow` para autorizar la subida de `.github/workflows/quality-ci.yml`.
 2. **Modo Edición de Código / Diffs:** Permitir que el agente proponga cambios en archivos locales y los aplique con confirmación visual.
 3. **Integración con Tareas de Git:** Comandos asistidos para status, commits descriptivos y gestión de ramas.
 4. **Dictado por Voz Offline:** Evaluar la integración con las herramientas descargadas en `~/Descargas/Herramientas_IA_Dictado_Memoria/` (Handy / whisper.cpp).
