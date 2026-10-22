@@ -1,0 +1,6 @@
+Enoc Agent CLI - Local Linux AI Assistant
+Copyright 2026 Enoc Colomer
+
+This product includes software developed by Google LLC (Google Antigravity SDK),
+licensed under the Apache License, Version 2.0.
+Upstream repository: https://github.com/google/antigravity (submodule antigravity-sdk-python)

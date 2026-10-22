@@ -1,72 +1,94 @@
 ================================================================================
-RESUMEN Y CONTEXTO COMPLETO DE LA CONVERSACIÓN - PROYECTO ANTIGRAVITY SDK + OLLAMA
+MEMORIA COMPLETA DE DESARROLLO Y CONTINUIDAD - AGENTE SDK + OLLAMA
 ================================================================================
-Fecha: 2026-10-04
-Ubicación del Proyecto: /home/enoc-colomer/Descargas/Antigravity_SDK
+Fecha de actualización: 2026-10-22
+Ruta del proyecto: /home/enoc-colomer/dev/personal/antigravity-sdk
+Comando ejecutable global: /home/enoc-colomer/.local/bin/agente
+Script principal: /home/enoc-colomer/dev/personal/antigravity-sdk/chat_ollama.py
+Entorno virtual: /home/enoc-colomer/dev/personal/antigravity-sdk/.venv
+Modelo base en Ollama: qwen2.5-coder:1.5b (personalizado como 'enoc-agent')
+Endpoint Ollama local: http://localhost:11434/v1
 
-1. OBJETIVO DEL USUARIO:
-------------------------
-- Descargar la herramienta Google Antigravity SDK (Python) en una carpeta especial.
-- Repositorio: https://github.com/google-antigravity/antigravity-sdk-python.git
-- Producto oficial: https://antigravity.google/product/antigravity-sdk
-- Configurar la herramienta para que funcione con total fluidez con los modelos locales de Ollama.
-- Poder iniciarla desde cualquier terminal con un comando simple como `agente sdk`.
-- Trasladar todo el contexto a la aplicación de escritorio de Antigravity para seguir trabajando allí.
+--------------------------------------------------------------------------------
+1. OBJETIVO PRINCIPAL DEL PROYECTO
+--------------------------------------------------------------------------------
+Crear un Asistente / Agente Inteligente Local de Terminal que opere con latencia
+cero en procesadores CPU, sin depender de la nube, utilizando modelos locales
+de Ollama y con capacidades completas de agente autónomo:
+- Monitoreo y control del sistema Linux (Ubuntu).
+- Ejecución segura de comandos bash en el sistema.
+- Cero alucinaciones: verificar siempre la realidad antes de dar cifras.
+- Bucle agente autónomo de encadenamiento de comandos en múltiples pasos.
 
-2. LO QUE SE HA DESCARGADO Y CONFIGURADO:
------------------------------------------
-- Carpeta principal creada: /home/enoc-colomer/Descargas/Antigravity_SDK
-- Repositorio clonado en: /home/enoc-colomer/Descargas/Antigravity_SDK/antigravity-sdk-python
-- Entorno Virtual Python (.venv) creado con `uv`:
-  Ruta: /home/enoc-colomer/Descargas/Antigravity_SDK/.venv
-  Paquete instalado: google-antigravity (v0.1.20) desde PyPI (incluye el runtime compilado necesario).
+--------------------------------------------------------------------------------
+2. PROBLEMAS RESUELTOS DURANTE LA EVOLUCIÓN
+--------------------------------------------------------------------------------
+A) Eliminación de herramientas pesadas que congelaban la máquina:
+   - Se removió Cline CLI: su System Prompt gigante de 8k-32k tokens y modo 'thinking'
+     hacían que Ollama tardara hasta 4 minutos en CPU para generar la primera palabra.
+   - Se desinstaló Aider y se eliminaron dependencias residuales para mantener
+     el sistema limpio y optimizado.
 
-3. INTEGRACIÓN CON OLLAMA LOCAL:
---------------------------------
-- Servicio Ollama detectado y verificado en: http://localhost:11434
-- Endpoint compatible OpenAI: http://localhost:11434/v1
-- Modelos locales verificados:
-  * llama3.2:latest (3.2B, ideal por ligereza, bajo consumo de RAM y respuestas rápidas en CPU).
-  * phi4-mini:latest (3.8B, soporta herramientas y razonamiento más denso).
-- Configuración en código usada en Antigravity SDK:
-  from google.antigravity import Agent, LocalOpenAIAgentConfig
+B) Selección y optimización del modelo local:
+   - Se descartó phi4-mini como modelo por defecto por su alto consumo de RAM y CPU
+     (requería 7 GB y sufría en contexto largo).
+   - Se adoptó qwen2.5-coder:1.5b (986 MB): es el modelo más rápido del mundo en su
+     categoría para entender comandos Bash y responder en menos de 1 segundo en CPU.
+   - Se creó el Modelfile 'enoc-agent' en Ollama limitando num_ctx a 2048 y
+     temperature a 0.0 para respuestas ultra-rápidas y deterministas.
 
-  config = LocalOpenAIAgentConfig(
-      base_url="http://localhost:11434/v1",
-      model="llama3.2:latest",
-  ).lightweight()
+C) Erradicación de alucinaciones numéricas:
+   - Inicialmente el modelo inventaba porcentajes de RAM cuando se hacían preguntas
+     cortas de seguimiento (ej: 'y de ram').
+   - Solución: Se programó una regla de oro en el Modelfile y en el script Python
+     que prohíbe terminantemente citar números de hardware sin ejecutar antes el
+     comando real de Linux (free -h, df -h, ps aux, etc.).
 
-  Nota: El método `.lightweight()` reduce el tamaño del prompt del sistema y ajusta las herramientas
-  para que el modelo local corra con fluidez sin saturar el contexto de la CPU.
+D) Corrección de acciones de control de energía:
+   - Al pedirle apagar la PC en 20 segundos, el modelo repetía 'df -h /' por inercia.
+   - Solución: Se introdujeron recetas obligatorias de control de energía:
+     * Apagado programado: sleep 20 && systemctl poweroff
+     * Apagado inmediato: systemctl poweroff || sudo poweroff
+     * Reinicio: systemctl reboot || sudo reboot
+     * Cancelar apagado: shutdown -c
 
-4. SCRIPTS Y COMANDOS CREADOS:
-------------------------------
-A) /home/enoc-colomer/Descargas/Antigravity_SDK/chat_ollama.py:
-   Script interactivo en Python para chatear con el agente en tiempo real.
+--------------------------------------------------------------------------------
+3. ARQUITECTURA TÉCNICA DEL AGENTE ACTUAL (chat_ollama.py)
+--------------------------------------------------------------------------------
+A) Bucle Agente Autónomo (Multi-Turn Chaining):
+   - El agente no se limita a un único comando por pregunta.
+   - Si la consulta requiere varios pasos (ej: 'cómo está mi sistema' o 'cuánto espacio
+     y RAM tengo'), el agente ejecuta un comando, lee la salida real de Linux, evalúa
+     si necesita más información, ejecuta el siguiente comando, y al final entrega una
+     síntesis limpia y comprensible.
+   - Soporta hasta MAX_AGENT_STEPS = 6 pasos por turno de usuario.
 
-B) /home/enoc-colomer/Descargas/Antigravity_SDK/iniciar_agente.sh:
-   Lanzador Bash con permisos de ejecución.
+B) Clasificación Inteligente de Comandos (Seguros vs. Peligrosos):
+   - Comandos Seguros (Solo lectura): Se auto-ejecutan de forma transparente para
+     agilizar la experiencia (df, free, uptime, ps, sensors, which, cat, ip, etc.).
+   - Comandos con Cambios o Peligrosos: Muestran el menú interactivo de aprobación
+     con opciones [1-4] y una alerta visual roja (🚨 ATENCIÓN) antes de tocar el sistema
+     (rm, mkfs, dd, poweroff, reboot, shutdown, etc.).
 
-C) Comando global de terminal en ~/.local/bin/agente y ~/.local/bin/agente-sdk:
-   Permite abrir la terminal en cualquier carpeta y ejecutar:
-     agente sdk
-     agente
-     agente-sdk
-     agente sdk phi4-mini:latest (para usar un modelo específico)
+C) Interfaz y Usabilidad en Terminal:
+   - Historial persistente en ~/.config/antigravity_agente_history con navegación ↑ / ↓.
+   - Animación de carga estilo Ollama (braille / spinner) durante el pensamiento y la
+     lectura de salidas.
+   - Comandos internos disponibles en el chat:
+     * /modelos : Lista y permite cambiar de modelo en caliente.
+     * /modelo <nombre> : Cambia a un modelo específico de Ollama.
+     * /limpiar : Reinicia el contexto de memoria.
+     * /ayuda : Muestra los comandos rápidos.
+     * salir / exit : Cierra la sesión guardando historial.
 
-5. HISTORIAL RESUMIDO DE CONSULTAS Y PRUEBAS REALIZADAS:
---------------------------------------------------------
-- Usuario: "en una carpeta especial descargemos esta erramienta para que la configuremos despues..."
-  Acción: Se clonó el repositorio en /home/enoc-colomer/Descargas/Antigravity_SDK/antigravity-sdk-python.
-- Usuario: "ok configurala para que funcione con toda la fuides con los modelos de ollama local"
-  Acción: Se creó el entorno virtual .venv, se instaló google-antigravity, se probó la conectividad
-  con Ollama (probados llama3.2 y phi4-mini), se configuró LocalOpenAIAgentConfig().lightweight()
-  y se verificó que llama3.2 responde de forma rápida.
-- Usuario: "como asemos para que se pueda iniciar des de la terminal con un comando por ejemplo agente sdk o algo asi"
-  Acción: Se creó el script global en ~/.local/bin/agente con soporte para `agente sdk` y el alias `agente-sdk`.
-- Usuario: "mandar esta conversacion a la aplicasion de escritorio de antigravity para que trabajemos es se entorno"
-  Acción: Se generó este archivo de contexto completo para que la aplicación de escritorio tenga todo a mano.
+--------------------------------------------------------------------------------
+4. REPOSITORIO Y ARCHIVOS CLAVE
+--------------------------------------------------------------------------------
+- Carpeta del proyecto: /home/enoc-colomer/dev/personal/antigravity-sdk
+- Submódulo de referencia oficial: antigravity-sdk-python (repo upstream de Google Antigravity)
+- Ramas locales en git: master (activa), feat/sliding-window-lightweight
+- Archivo de enlace global: /home/enoc-colomer/.local/bin/agente -> chat_ollama.py
 
 ================================================================================
-FIN DEL ARCHIVO DE CONTEXTO
+FIN DEL REPORTE DE CONTEXTO
 ================================================================================
